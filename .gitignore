@@ -9,6 +9,8 @@ npm-debug.log*
 # Build output
 dist/
 build/
+results/
+server/results/
 
 # Docker
 *.tar
