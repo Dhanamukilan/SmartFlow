@@ -6,33 +6,62 @@ on:
   pull_request:
     branches: [ "**" ]
   workflow_dispatch:
+    inputs:
+      failure_type:
+        description: 'Deliberate failure type to inject'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - 'none'
+          - 'assertion_failure'
+          - 'connection_error'
+          - 'timeout_error'
+          - 'flaky_test'
+          - 'dependency_error'
 
 jobs:
   test:
-    name: Run Server Test Suite
+    name: Run Test Suite
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js Environment
+      - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install Server Dependencies
+      - name: Install Dependencies
         run: |
           cd server
           npm install
 
-      - name: Execute Test Suite with JUnit Reporting
+      - name: Determine Injected Failure Mode
+        id: config
+        run: |
+          INJECT="none"
+          if [ -n "${{ inputs.failure_type }}" ] && [ "${{ inputs.failure_type }}" != "none" ]; then
+            INJECT="${{ inputs.failure_type }}"
+          elif echo "${{ github.event.head_commit.message }}" | grep -q '\[inject:'; then
+            INJECT=$(echo "${{ github.event.head_commit.message }}" | sed -n 's/.*\[inject:\([a-z_]*\)\].*/\1/p')
+          fi
+          echo "FAILURE_INJECTOR=${INJECT}" >> $GITHUB_ENV
+          echo "=== GROUND TRUTH: INJECTED_FAILURE_TYPE=${INJECT} ==="
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Workflow Run ID: ${{ github.run_id }}"
+          echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+      - name: Execute Server Tests with JUnit Reporting
         run: |
           cd server
           mkdir -p results
-          # Run tests and ensure junit.xml is generated even if tests fail
-          npm test || true
+          echo "Executing test suite with FAILURE_INJECTOR=${FAILURE_INJECTOR}"
+          # Runs test suite with real Node.js native test runner and JUnit output
+          npm test
 
-      - name: Upload Test Results Artifact
+      - name: Upload JUnit XML Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
